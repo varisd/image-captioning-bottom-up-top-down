@@ -26,12 +26,18 @@ def create_input_files(dataset,karpathy_json_path,captions_per_image, min_word_f
     with open(karpathy_json_path, 'r') as j:
         data = json.load(j)
     
-    with open(os.path.join(output_folder,'train36_imgid2idx.pkl'), 'rb') as j:
+#    with open(os.path.join(output_folder,'train36_imgid2idx.pkl'), 'rb') as j:
+#        train_data = pickle.load(j)
+#        
+#    with open(os.path.join(output_folder,'val36_imgid2idx.pkl'), 'rb') as j:
+#        val_data = pickle.load(j)
+
+    with open(os.path.join(output_folder,'train100_imgid2idx.pkl'), 'rb') as j:
         train_data = pickle.load(j)
         
-    with open(os.path.join(output_folder,'val36_imgid2idx.pkl'), 'rb') as j:
+    with open(os.path.join(output_folder,'val100_imgid2idx.pkl'), 'rb') as j:
         val_data = pickle.load(j)
-    
+
     # Read image paths and captions for each image
     train_image_captions = []
     val_image_captions = []
@@ -149,7 +155,7 @@ def init_embedding(embeddings):
     torch.nn.init.uniform_(embeddings, -bias, bias)
 
 
-def save_checkpoint(data_name, epoch, epochs_since_improvement,decoder,decoder_optimizer,
+def save_checkpoint(data_name, dir_path, epoch, epochs_since_improvement,decoder,decoder_optimizer,
                     bleu4, is_best):
     """
     Saves model checkpoint.
@@ -168,10 +174,11 @@ def save_checkpoint(data_name, epoch, epochs_since_improvement,decoder,decoder_o
              'decoder': decoder,
              'decoder_optimizer': decoder_optimizer}
     filename = 'checkpoint_' + data_name + '.pth.tar'
+    filepath = os.path.join(dir_path, 'BEST_' + str(epoch) + filename)
     torch.save(state, filename)
     # If this checkpoint is the best so far, store a copy so it doesn't get overwritten by a worse checkpoint
     if is_best:
-        torch.save(state, 'BEST_' + str(epoch) + filename)
+        torch.save(state, filepath)
 
 
 class AverageMeter(object):
