@@ -9,6 +9,7 @@ import torch.utils.data
 import torchvision.transforms as transforms
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence
+from torch.utils.tensorboard import SummaryWriter
 
 from nltk.translate.bleu_score import corpus_bleu
 from models import DecoderWithAttention
@@ -43,28 +44,21 @@ def parse_args():
                         help="Apply a projection on the input.")
     parser.add_argument("--use_perceptual_loss", action="store_true")
     parser.add_argument("--use_cluster_loss", action="store_true")
+    parser.add_argument("--val_only", action="store_true",
+                        help="(Debug) execute only the validation (with "
+                             "the latest checkpoint)")
+    parser.add_argument("--checkpoint", type=str, default=None)
 
     args = parser.parse_args()
     return args
-
-
-def reindex(x, x2str, str2y):
-    z = x2str[x]
-    if z in str2y:
-        return str2y[z]
-    else:
-        return 0
-
-
-def reindex_np(x, x2str, str2y):
-    y = torch.tensor([[reindex(b, x2str, str2y) for b in a] for a in x])
-    return y.to(DEVICE)
 
 
 def main():
     """
     Training and validation.
     """
+    args = parse_args()
+
     global best_bleu4, epochs_since_improvement, start_epoch, checkpoint
     global idx2word, word2idx, idx2cls, cls2idx, idx2attr, attr2idx
 
@@ -76,9 +70,8 @@ def main():
     # BLEU-4 score right now
     best_bleu4 = 0.
     # path to checkpoint, None if none
-    checkpoint = None
+    checkpoint = args.checkpoint
 
-    args = parse_args()
     data_dir = os.path.join(args.expdir, "data")
 
     idx2word, word2idx = load_vocab(
@@ -131,6 +124,8 @@ def main():
         batch_size=BATCH_SIZE, shuffle=True, num_workers=WORKERS,
         pin_memory=True)
 
+    writer = SummaryWriter(log_dir="{}/logs".format(args.expdir))
+
     # Epochs
     for epoch in range(start_epoch, EPOCHS):
         # Decay learning rate if there is no improvement for 8 consecutive
@@ -141,22 +136,34 @@ def main():
             adjust_learning_rate(decoder_optimizer, 0.8)
     
         # One epoch's training
-        train(train_loader=train_loader,
-              decoder=decoder,
-              criterion_ce=criterion_ce,
-              criterion_dis=criterion_dis,
-              criterion_cl=criterion_cl,
-              criterion_pe=criterion_pe,
-              decoder_optimizer=decoder_optimizer,
-              epoch=epoch)
+        if not args.val_only:
+            train(train_loader=train_loader,
+                  decoder=decoder,
+                  criterion_ce=criterion_ce,
+                  criterion_dis=criterion_dis,
+                  criterion_cl=criterion_cl,
+                  criterion_pe=criterion_pe,
+                  decoder_optimizer=decoder_optimizer,
+                  epoch=epoch)
 
         # One epoch's validation
-        recent_bleu4 = validate(val_loader=val_loader,
-                                decoder=decoder,
-                                criterion_ce=criterion_ce,
-                                criterion_dis=criterion_dis,
-                                criterion_cl=criterion_cl,
-                                criterion_pe=criterion_pe)
+        recent_bleu4, loss_g, loss_d, loss_p, loss_c = validate(
+            val_loader=val_loader,
+            decoder=decoder,
+            criterion_ce=criterion_ce,
+            criterion_dis=criterion_dis,
+            criterion_cl=criterion_cl,
+            criterion_pe=criterion_pe)
+        loss = loss_g.avg + loss_d.avg + loss_p.avg + loss_c.avg
+        writer.add_scalar("Validation/Bleu-4", recent_bleu4, epoch)
+        writer.add_scalar("Validation/Loss", loss, epoch)
+        writer.add_scalar("Validation/Loss_basic", loss_g.avg, epoch)
+        writer.add_scalar("Validation/Loss_discrim", loss_d.avg, epoch)
+        writer.add_scalar("Validation/Loss_cluster", loss_c.avg, epoch)
+        writer.add_scalar("Validation/Loss_perceptual", loss_p.avg, epoch)
+
+        if args.val_only:
+            break
 
         # Check if there was an improvement
         is_best = recent_bleu4 > best_bleu4
@@ -171,7 +178,7 @@ def main():
         # Save checkpoint
         save_checkpoint(
             DATA_NAME, args.expdir, epoch, epochs_since_improvement,
-            decoder,decoder_optimizer, recent_bleu4, is_best)
+            decoder, decoder_optimizer, recent_bleu4, is_best)
 
 
 def train(train_loader,
@@ -231,7 +238,8 @@ def train(train_loader,
         classes = classes[sort_ind]
         attributes = attributes[sort_ind]
 
-        indices = reindex_np(classes, idx2cls, word2idx)
+        indices = torch.tensor(
+            reindex_np(classes, idx2cls, word2idx)).to(DEVICE)
 
         # Max-pooling across predicted words across time steps
         # for discriminative supervision
@@ -248,11 +256,13 @@ def train(train_loader,
 
         # Remove timesteps that we didn't decode at, or are pads
         # pack_padded_sequence is an easy trick to do this
-        scores = pack_padded_sequence(scores, decode_lengths, batch_first=True).data
-        targets = pack_padded_sequence(targets, decode_lengths, batch_first=True).data
+        scores = pack_padded_sequence(
+            scores, decode_lengths, batch_first=True).data
+        targets = pack_padded_sequence(
+            targets, decode_lengths, batch_first=True).data
 
         # Calculate loss
-        loss_d = criterion_dis(scores_d,targets_d.long())
+        loss_d = criterion_dis(scores_d, targets_d.long())
         loss_g = criterion_ce(scores, targets)
         loss_c = 0
         if criterion_cl is not None:
@@ -314,6 +324,10 @@ def validate(val_loader,
 
     batch_time = AverageMeter()
     losses = AverageMeter()
+    losses_g = AverageMeter()
+    losses_d = AverageMeter()
+    losses_c = AverageMeter()
+    losses_p = AverageMeter()
     top5accs = AverageMeter()
 
     start = time.time()
@@ -343,7 +357,8 @@ def validate(val_loader,
             classes = classes[sort_ind]
             attributes = attributes[sort_ind]
 
-            indices = reindex_np(classes, idx2cls, word2idx)
+            indices = torch.tensor(
+                reindex_np(classes, idx2cls, word2idx)).to(DEVICE)
 
             # Max-pooling across predicted words across time steps
             # for discriminative supervision
@@ -381,6 +396,11 @@ def validate(val_loader,
 
             # Keep track of metrics
             losses.update(loss.item(), sum(decode_lengths))
+            losses_g.update(loss_g.item(), sum(decode_lengths))
+            losses_d.update(loss_d.item(), sum(decode_lengths))
+            losses_c.update(loss_c, sum(decode_lengths))
+            losses_p.update(loss_p, sum(decode_lengths))
+
             top5 = accuracy(scores, targets, 5)
             top5accs.update(top5, sum(decode_lengths))
             batch_time.update(time.time() - start)
@@ -436,7 +456,7 @@ def validate(val_loader,
             top5=top5accs,
             bleu=bleu4))
 
-    return bleu4
+    return bleu4, losses_g, losses_d, losses_p, losses_c
 
 
 if __name__ == '__main__':

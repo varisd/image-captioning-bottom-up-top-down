@@ -6,6 +6,15 @@ from torch.nn.utils.weight_norm import weight_norm
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
+class Residual(nn.Module):
+    def __init__(self, layer):
+        super(Residual, self).__init__()
+        self.layer = layer
+    def forward(self, x):
+        return self.layer(x) + x
+
+
 class Attention(nn.Module):
     """
     Attention Network.
@@ -107,6 +116,17 @@ class DecoderWithAttention(nn.Module):
             self.input_projection = nn.Linear(features_dim, features_dim)
             self.input_projection.weight.data.copy_(torch.eye(features_dim))
             self.input_projection.bias.data.fill_(0)
+        elif input_projection == "linear-res":
+            proj = nn.Linear(features_dim, features_dim)
+            proj.weight.data.uniform_(-0.1, 0.1)
+            proj.bias.data.fill_(0)
+            self.input_projection = Residual(proj)
+        elif input_projection == "constant":
+            self.input_projection = nn.Linear(features_dim, features_dim)
+            self.input_projection.weight.data.copy_(torch.eye(features_dim))
+            self.input_projection.bias.data.fill_(0)
+            self.input_projection.weight.requires_grad = False
+            self.input_projection.bias.requires_grad = False
 
         # attention network
         self.attention = Attention(features_dim, decoder_dim, attention_dim)

@@ -8,6 +8,20 @@ from collections import Counter
 from random import seed, choice, sample
 import pickle
 
+
+def reindex(x, x2str, str2y):
+    z = x2str[x]
+    if z in str2y:
+        return str2y[z]
+    else:
+        return 0
+
+
+def reindex_np(x, x2str, str2y):
+    y = np.array([[reindex(b, x2str, str2y) for b in a] for a in x])
+    return y
+
+
 def create_input_files(dataset,karpathy_json_path,captions_per_image, min_word_freq,output_folder,max_len=100):
     """
     Creates input files for training, validation, and test data.
@@ -144,7 +158,6 @@ def create_input_files(dataset,karpathy_json_path,captions_per_image, min_word_f
         json.dump(test_image_det, j)
 
 
-
 def init_embedding(embeddings):
     """
     Fills embedding tensor with values from the uniform distribution.
@@ -175,10 +188,10 @@ def save_checkpoint(data_name, dir_path, epoch, epochs_since_improvement,decoder
              'decoder_optimizer': decoder_optimizer}
     filename = 'checkpoint_' + data_name + '.pth.tar'
     filepath = os.path.join(dir_path, 'BEST_' + str(epoch) + filename)
-    torch.save(state, filename)
-    # If this checkpoint is the best so far, store a copy so it doesn't get overwritten by a worse checkpoint
+    # Save after each epoch and also indicate the best VAL data checkpoint
+    torch.save(state, filepath)
     if is_best:
-        torch.save(state, filepath)
+        torch.save(state, os.path.join(dir_path, 'BEST_ALL' + filename))
 
 
 class AverageMeter(object):

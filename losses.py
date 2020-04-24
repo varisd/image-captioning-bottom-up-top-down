@@ -6,7 +6,7 @@ from torch.distributions.categorical import Categorical
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-MAX_SIZE = 50
+MAX_SIZE = 500
 
 
 class ClusterLoss(torch.nn.Module):
@@ -29,8 +29,9 @@ class ClusterLoss(torch.nn.Module):
         x = x[indices_gather]
 
         # WORKAROUND due to memory problems
-        indices = indices[:MAX_SIZE]
-        x = x[:MAX_SIZE, :]
+        perm = torch.randperm(indices.shape[0])
+        indices = indices[perm[:MAX_SIZE]]
+        x = x[perm[:MAX_SIZE]]
 
         # Normalize
         x_norm = torch.norm(x, p=2, dim=-1, keepdim=True).detach()
@@ -74,9 +75,10 @@ class PerceptualLoss(torch.nn.Module):
         y = y[indices_gather]
 
         # WORKAROUND due to memory problems
-        indices = indices[:MAX_SIZE]
-        x = x[:MAX_SIZE, :]
-        y = y[:MAX_SIZE, :]
+        perm = torch.randperm(indices.shape[0])
+        indices = indices[perm[:MAX_SIZE]]
+        x = x[perm[:MAX_SIZE]]
+        y = y[perm[:MAX_SIZE]]
 
         # Normalize
         x_norm = torch.norm(x, p=2, dim=-1, keepdim=True).detach()
