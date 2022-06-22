@@ -1,4 +1,6 @@
 #!/usr/bin/env python2.7
+from __future__ import print_function
+
 import os
 import argparse
 
@@ -48,7 +50,7 @@ def evaluate(args):
     references = list()
     hypotheses = list()
 
-    idx2word, word2idx = load_vocab(os.path.join(data_dir,"words_vocab.txt"))
+    idx2word, word2idx = load_vocab(os.path.join(data_dir, "words_vocab.txt"))
     idx2cls, cls2idx = load_vocab(os.path.join(data_dir, "objects_vocab.txt"))
     idx2attr, attr2idx = load_vocab(
         os.path.join(data_dir, "attributes_vocab.txt"))
@@ -188,10 +190,12 @@ def evaluate(args):
         hypothesis = ([idx2word[w] for w in seq if w not in {word2idx['<start>'], word2idx['<end>'], word2idx['<pad>']}])
         hypothesis = ' '.join(hypothesis)
 
-        if args.print_captions:
-            print(hypothesis)
         hypotheses.append(hypothesis)
         assert len(references) == len(hypotheses)
+
+    with open(args.caption_output_file, "w") as fh:
+        for hyp in hypotheses:
+            print(hyp, file=fh)
 
     # Calculate scores
     metrics_dict = NLG_EVAL.compute_metrics(references, hypotheses)
@@ -201,15 +205,15 @@ def evaluate(args):
 def parse_args():
     parser = argparse.ArgumentParser(description="TODO")
 
-    parser.add_argument("--print_captions", action="store_true",
+    parser.add_argument("--caption_output_file", type=str, default=None,
                         help="Print decoded captions.")
     parser.add_argument("--data_dir", required=True,
                         help="Directory containing the data.")
     parser.add_argument("--checkpoint", required=True,
                         help="Checkpoint file location.",)
-    parser.add_argument("--batch_size", default=1,
+    parser.add_argument("--batch_size", type=int, default=1,
                         help="Batch size.")
-    parser.add_argument("--beam-size", default=5,
+    parser.add_argument("--beam-size", type=int, default=5,
                         help="Beam size.",)
 
     args = parser.parse_args()

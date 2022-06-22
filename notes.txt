@@ -1,0 +1,8 @@
+Experiments:
+
+Baselines:
+
+python train.py --expdir experiments/baseline.new
+
+# "linear" or "linear-id"
+python train.py --expdir experiments/baseline.linear-id --input_projection 'linear-id'
